@@ -6,15 +6,17 @@ from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
 
 
-
-
 class AnomalyDetectionEngine:
     """
-    ML Ensemble for Network Anomaly Detection
-    Models:
+    Explainable Network Anomaly Detection Engine
+
+    Models Used:
     - Isolation Forest
-    - Local Outlier Factor
-    - Autoencoder
+    - Local Outlier Factor (LOF)
+
+    Output:
+    - anomaly_score (0, 1, 2)
+    - is_anomaly (True / False)
     """
 
     def __init__(self):
@@ -32,32 +34,16 @@ class AnomalyDetectionEngine:
             novelty=True
         )
 
-        self.autoencoder = None
-
     # -------------------------
-    # Autoencoder builder
-    # -------------------------
-    def _build_autoencoder(self, input_dim):
-        input_layer = Input(shape=(input_dim,))
-        encoded = Dense(8, activation="relu")(input_layer)
-        decoded = Dense(input_dim, activation="linear")(encoded)
-
-        autoencoder = Model(input_layer, decoded)
-        autoencoder.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss="mse"
-        )
-        return autoencoder
-
-    # -------------------------
-    # MAIN ENTRY POINT
+    # MAIN PIPELINE
     # -------------------------
     def run(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Runs full anomaly detection pipeline.
+        Runs the full anomaly detection pipeline.
         This is the ONLY method the dashboard should call.
         """
 
+        # Required numeric features
         feature_cols = [
             "duration",
             "src_bytes",
@@ -66,46 +52,49 @@ class AnomalyDetectionEngine:
             "srv_count"
         ]
 
+        # Validate columns
+        for col in feature_cols:
+            if col not in df.columns:
+                raise ValueError(f"Missing required column: {col}")
+
+        # Feature matrix
         X = df[feature_cols].values
         X_scaled = self.scaler.fit_transform(X)
 
+        # -------------------------
         # Isolation Forest
-        if_scores = -self.iforest.fit_predict(X_scaled)
+        # -------------------------
+        if_predictions = self.iforest.fit_predict(X_scaled)
+        if_scores = (if_predictions == -1).astype(int)
 
-        # LOF
+        # -------------------------
+        # Local Outlier Factor
+        # -------------------------
         self.lof.fit(X_scaled)
-        lof_scores = -self.lof.predict(X_scaled)
+        lof_predictions = self.lof.predict(X_scaled)
+        lof_scores = (lof_predictions == -1).astype(int)
 
-        # Autoencoder
-        if self.autoencoder is None:
-            self.autoencoder = self._build_autoencoder(X_scaled.shape[1])
-            self.autoencoder.fit(
-                X_scaled,
-                X_scaled,
-                epochs=20,
-                batch_size=32,
-                verbose=0
-            )
+        # -------------------------
+        # Final Ensemble Score
+        # -------------------------
+        anomaly_score = if_scores + lof_scores
 
-        reconstructions = self.autoencoder.predict(X_scaled, verbose=0)
-        reconstruction_error = np.mean(
-            np.square(X_scaled - reconstructions), axis=1
-        )
-
-        # Normalize scores
-        final_score = (
-            (if_scores > 0).astype(int)
-            + (lof_scores > 0).astype(int)
-            + (reconstruction_error > np.percentile(reconstruction_error, 95)).astype(int)
-        )
-
+        # -------------------------
+        # Build result dataframe
+        # -------------------------
         df_result = df.copy()
-       
-        # Add baseline statistics for explainability
-        for col in ["src_bytes", "dst_bytes", "count", "srv_count"]:
-          df_result[f"{col}_mean"] = df[col].mean()
+        df_result["iforest_flag"] = if_scores
+        df_result["lof_flag"] = lof_scores
+        df_result["anomaly_score"] = anomaly_score
+        df_result["is_anomaly"] = df_result["anomaly_score"] >= 1
 
-          df_result["anomaly_score"] = final_score
-          df_result["is_anomaly"] = df_result["anomaly_score"] >= 2
+        # -------------------------
+        # Explainability statistics
+        # -------------------------
+        for col in ["src_bytes", "dst_bytes", "count", "srv_count"]:
+            df_result[f"{col}_mean"] = df[col].mean()
+            df_result[f"{col}_zscore"] = (
+                (df[col] - df[col].mean()) / (df[col].std() + 1e-6)
+            )
 
         return df_result
