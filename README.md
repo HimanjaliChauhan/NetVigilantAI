@@ -75,7 +75,7 @@ How to Run Locally
 
 1. Clone the repository
 
-git clone https://github.com/your-username/NetVigilantAI.git  
+git clone https://github.com/HimanjaliChauhan/NetVigilantAI.git  
 cd NetVigilantAI  
 
 2. Create and activate virtual environment
@@ -157,7 +157,7 @@ Author
 
 Himanjali Chauhan  
 Aspiring Data Analyst | AI and Cybersecurity Enthusiast  
-
+Live Link - https://netvigilantai.onrender.com/
 --------------------------------------------------
 
 If you like this project, consider starring the repository on GitHub.
